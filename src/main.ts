@@ -2,17 +2,45 @@ import './style.css'
 
 let audioCtx: AudioContext
 async function init_context() {
-  audioCtx ??= new AudioContext()
-  //init_oscilloscope()
-  await init_audioworklet()
+  if (!audioCtx) {
+    audioCtx = new AudioContext()
+    //init_oscilloscope()
+    await init_audioworklet()
+    init_gains()
+  }
+}
+
+let bins: Float32Array<ArrayBuffer>
+let analyser: AnalyserNode
+let gain: GainNode
+function init_gains() {
+
+  analyser = audioCtx.createAnalyser()
+  analyser.fftSize = 2048
+  bins = new Float32Array(analyser.frequencyBinCount)
+  analyser.smoothingTimeConstant = 0.79
+
+  gain = audioCtx.createGain();
+
+  synth_worklet.connect(gain)
+  gain.connect(worklet)
+  worklet.connect(analyser)
+  analyser.connect(audioCtx.destination)
+
+  let now = audioCtx.currentTime;
+  gain.gain.setValueAtTime(0.0001, now);
 }
 
 import workletUrl from './scope-processor?worker&url'
+import synthworkletUrl from './synth-processor?worker&url'
 
 let worklet: AudioWorkletNode
+let synth_worklet: AudioWorkletNode
 async function init_audioworklet() {
   await audioCtx.audioWorklet.addModule(workletUrl)
+  await audioCtx.audioWorklet.addModule(synthworkletUrl)
   worklet = new AudioWorkletNode(audioCtx, 'scope-processor')
+  synth_worklet = new AudioWorkletNode(audioCtx, 'synth-processor')
 
   worklet.port.onmessage = (e) => {
     const samples = e.data
@@ -23,6 +51,7 @@ async function init_audioworklet() {
       writeIndex %= BUFFER_SIZE
     }
   }
+
 }
 
 const BUFFER_SIZE = 65536
@@ -72,42 +101,65 @@ function init_keyboard() {
     init_context()
 
     if (e.key === ' ') {
-      playSound()
+      //playSound()
+
+      playSong()
     }
   })
 }
 
+
+
+function playSong() {
+  let song = [
+    [0.0, 440, 0.5],   // At 0 seconds, play A for 0.5 seconds
+    [0.5, 494, 0.5],   // At 0.5 seconds, play B for 0.5 seconds
+    [1.0, 523, 0.5],   // At 1.0 seconds, play C for 0.5 seconds
+    [1.5, 587, 1.0],   // At 1.5 seconds, play D for 1.0 seconds
+    [2.5, 523, 0.5],
+    [3.0, 494, 0.5],
+    [3.5, 440, 1.0]
+  ];
+
+  /*
+  song = [
+    [0, 40, 3],
+    [3, 640, 3],
+    [6, 8080, 3],
+  ]
+    */
+
+  if (gain === undefined) {
+    return
+  }
+
+  song.forEach(event => {
+    const [time, frequency, duration] = event
+
+    setTimeout(() => {
+      const now = audioCtx.currentTime
+      synth_worklet.port.postMessage({ frequency })
+
+      gain.gain.cancelScheduledValues(now)
+      gain.gain.setValueAtTime(1, now)
+      gain.gain.setValueAtTime(1, now + duration - 1)
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + duration)
+    }, time * 1000)
+  })
+}
+
+
 function playSound() {
 
-  if (worklet === undefined) {
+  if (gain === undefined) {
     return
   }
 
   let now = audioCtx.currentTime;
-
-  const osc = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
-
-  osc.type = 'sawtooth';
-
-  osc.frequency.setValueAtTime(220, now);
-  //osc.frequency.exponentialRampToValueAtTime(800, now + 0.08);
-
-  gain.gain.setValueAtTime(0.8, now);
-  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
-
-  osc.connect(gain);
-  //gain.connect(analyser);
-  //analyser.connect(audioCtx.destination);
-
-  gain.connect(worklet)
-  worklet.connect(audioCtx.destination)
-
-  osc.start(now);
-  osc.stop(now + 0.1);
+  gain.gain.setValueAtTime(0.5, now);
+  //gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.1);
 }
 
-let analyser: AnalyserNode
 let buffer: Float32Array<ArrayBuffer>
 
 export function init_oscilloscope() {
@@ -141,7 +193,8 @@ function draw_samples(samples: Float32Array, width: number, middle_y: number, he
   cx.stroke()
 }
 
-function draw_oscilloscope(width: number, height: number) {
+
+export function draw_oscilloscope(width: number, height: number) {
 
   if (analyser === undefined) {
     return
@@ -197,6 +250,48 @@ function draw_oscilloscope(width: number, height: number) {
   cx.stroke()
 }
 
+function draw_fft(width: number, height: number) {
+
+  if (analyser === undefined) {
+    return
+  }
+
+  const minFreq = 20 // 20Hz
+  const maxFreq = 12000 // 12kHz
+
+
+  cx.fillStyle = '#00aaff'
+  analyser.getFloatFrequencyData(bins)
+
+  for (let i = 0; i < bins.length; i++) {
+
+    const freq = i * audioCtx.sampleRate / analyser.fftSize
+
+    if (freq < minFreq || freq > maxFreq) continue
+    // map frequency to X position (logarithmic for natural feel)
+    const logFreq = Math.log(freq / minFreq) / Math.log(maxFreq / minFreq)
+    let x = logFreq * width
+
+    let db = bins[i]
+
+    const minDB = -100
+    const maxDB = 0
+
+    const normalizedDB = Math.max(minDB, Math.min(maxDB, db))
+
+    let normalized = (normalizedDB - minDB) / (maxDB - minDB)
+
+    let magnitude = Math.pow(normalized, 1.5) * height
+
+    //let x = i * 4
+    let h = Math.max(1, magnitude)
+
+    cx.fillRect(x, height - h, 3, h)
+  }
+
+}
+
+
 function worklet_frame() {
   const searchStart = (writeIndex - 4096 + BUFFER_SIZE) % BUFFER_SIZE
 
@@ -205,6 +300,7 @@ function worklet_frame() {
   const window = extractWindow(trigger)
 
   draw_samples(window, 1920, 1080/2, 600)
+  draw_fft(1920, 1080)
 }
 
 
