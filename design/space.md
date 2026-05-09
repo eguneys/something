@@ -62,3 +62,12 @@ Attack becomes:
 
 harmonically explosive,
 then settles.
+
+
+
+## Wiring Milestone
+
+multiple oscillators,
+multiple envelopes,
+modulation routing,
+operator chains,

@@ -12,7 +12,6 @@ async function init_context() {
 
 let bins: Float32Array<ArrayBuffer>
 let analyser: AnalyserNode
-let gain: GainNode
 function init_gains() {
 
   analyser = audioCtx.createAnalyser()
@@ -20,15 +19,9 @@ function init_gains() {
   bins = new Float32Array(analyser.frequencyBinCount)
   analyser.smoothingTimeConstant = 0.79
 
-  gain = audioCtx.createGain();
-
-  synth_worklet.connect(gain)
-  gain.connect(worklet)
+  synth_worklet.connect(worklet)
   worklet.connect(analyser)
   analyser.connect(audioCtx.destination)
-
-  let now = audioCtx.currentTime;
-  gain.gain.setValueAtTime(0.0001, now);
 }
 
 import workletUrl from './scope-processor?worker&url'
@@ -129,40 +122,18 @@ function playSong() {
   ]
     */
 
-  if (gain === undefined) {
-    return
-  }
-
   song.forEach(event => {
     const [time, frequency, duration] = event
 
     setTimeout(() => {
-      const now = audioCtx.currentTime
       synth_worklet.port.postMessage({ frequency })
       synth_worklet.port.postMessage({ envelope: { attack: true } })
-
-      gain.gain.cancelScheduledValues(now)
-      gain.gain.setValueAtTime(0.9, now)
     }, time * 1000)
 
     setTimeout(() => {
-      const now = audioCtx.currentTime
-      synth_worklet.port.postMessage({ envelope: { attack: true } })
-      gain.gain.exponentialRampToValueAtTime(0.0001, now)
+      synth_worklet.port.postMessage({ envelope: { release: true } })
     }, (time + duration - 0.1) * 1000)
   })
-}
-
-
-function playSound() {
-
-  if (gain === undefined) {
-    return
-  }
-
-  let now = audioCtx.currentTime;
-  gain.gain.setValueAtTime(0.5, now);
-  //gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.1);
 }
 
 let buffer: Float32Array<ArrayBuffer>
@@ -304,7 +275,7 @@ function worklet_frame() {
 
   const window = extractWindow(trigger)
 
-  draw_samples(window, 1920, 1080/2, 600)
+  draw_samples(window, 1920, 1080/2, 520)
   draw_fft(1920, 1080)
 }
 

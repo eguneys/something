@@ -16,10 +16,10 @@ class SynthProcessor extends AudioWorkletProcessor {
             if (event.data.envelope) {
                 if (event.data.envelope.attack) {
                     this.envelope.set_envelope({
-                        attackTimeInSeconds: 0,
-                        decayTimeInSeconds: 0.08,
-                        sustainLevel: 0.1,
-                        releaseTimeInSeconds: 0.1
+                        attackTimeInSeconds: 0.01,
+                        decayTimeInSeconds: 0.1,
+                        sustainLevel: 0.7,
+                        releaseTimeInSeconds: 0.3
                     })
                 } else if (event.data.envelope.release) {
                     this.envelope.release()
@@ -112,7 +112,7 @@ class SynthProcessor extends AudioWorkletProcessor {
             sample *= envelope
 
             let drive = 0.7
-            sample = Math.tanh(sample * drive)
+            //sample = Math.tanh(sample * drive)
 
             channel[i] = sample
         }
