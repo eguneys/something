@@ -139,12 +139,17 @@ function playSong() {
     setTimeout(() => {
       const now = audioCtx.currentTime
       synth_worklet.port.postMessage({ frequency })
+      synth_worklet.port.postMessage({ envelope: { attack: true } })
 
       gain.gain.cancelScheduledValues(now)
-      gain.gain.setValueAtTime(1, now)
-      gain.gain.setValueAtTime(1, now + duration - 1)
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + duration)
+      gain.gain.setValueAtTime(0.9, now)
     }, time * 1000)
+
+    setTimeout(() => {
+      const now = audioCtx.currentTime
+      synth_worklet.port.postMessage({ envelope: { attack: true } })
+      gain.gain.exponentialRampToValueAtTime(0.0001, now)
+    }, (time + duration - 0.1) * 1000)
   })
 }
 
