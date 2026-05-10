@@ -1,6 +1,11 @@
 import './style.css'
 
 let audioCtx: AudioContext
+
+
+let worklet: AudioWorkletNode
+let synth_worklet: AudioWorkletNode
+
 async function init_context() {
   if (!audioCtx) {
     audioCtx = new AudioContext()
@@ -9,6 +14,7 @@ async function init_context() {
     init_gains()
   }
 }
+
 
 let bins: Float32Array<ArrayBuffer>
 let analyser: AnalyserNode
@@ -22,13 +28,21 @@ function init_gains() {
   synth_worklet.connect(worklet)
   worklet.connect(analyser)
   analyser.connect(audioCtx.destination)
+
+
+  synth_worklet.port.postMessage({
+    envelope: {
+      attackTimeInSeconds: 0.01,
+      decayTimeInSeconds: 0.01,
+      sustainLevel: 0.1,
+      releaseTimeInSeconds: 4
+    }
+  })
 }
 
 import workletUrl from './scope-processor?worker&url'
 import synthworkletUrl from './synth-processor?worker&url'
 
-let worklet: AudioWorkletNode
-let synth_worklet: AudioWorkletNode
 async function init_audioworklet() {
   await audioCtx.audioWorklet.addModule(workletUrl)
   await audioCtx.audioWorklet.addModule(synthworkletUrl)
@@ -131,12 +145,11 @@ function playSong() {
 
     setTimeout(() => {
       synth_worklet.port.postMessage({ frequency })
-      synth_worklet.port.postMessage({ envelope: { attack: true } })
       activeNotes.push(frequency)
     }, time * 1000)
 
     setTimeout(() => {
-      synth_worklet.port.postMessage({ envelope: { release: true } })
+      synth_worklet.port.postMessage({ noteOff: true })
       activeNotes = []
     }, (time + duration - 0.4) * 1000)
   })

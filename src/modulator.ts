@@ -1,27 +1,33 @@
 import Envelope from "./envelope"
 
+
 class Modulation {
     constructor(readonly source: Parameter, readonly amount: number) { }
 }
 
-export class Parameter {
+interface Signal {
+    process(): number
+}
+
+class Parameter {
     baseValue = 0
     modulations: Modulation[] = []
 
-    push_modulation(m: Modulation) {
-        this.modulations.push(m)
+
+    addModulation(source: Parameter, amount: number) {
+        this.modulations.push(new Modulation(source, amount))
     }
 
     getValue() {
         let value = this.baseValue
 
-        for (let mod of this.modulations) {
+        for (const mod of this.modulations) {
             value += mod.source.getValue() * mod.amount
         }
-
         return value
     }
 }
+
 
 /*
 
@@ -85,7 +91,7 @@ export class Parameter {
 
 
 */
-export class Oscillator {
+export class Oscillator implements Signal {
 
     frequency = new Parameter()
     gain = new Parameter()
@@ -108,41 +114,51 @@ export class Oscillator {
             this.phase -= 1;
         }
 
-
         return Math.sin(this.phase * Math.PI * 2) * gain
     }
 
 }
 
-export class Voice {
+export class Voice implements Signal {
     
     oscillator_a: Oscillator
     oscillator_b: Oscillator
-    envelopes: Envelope[] = []
-    //lfos: LFO[] = []
+
+    ampEnvelope: Envelope
 
     constructor(sampleRate: number) {
         this.oscillator_a = new Oscillator(sampleRate)
         this.oscillator_b = new Oscillator(sampleRate)
+        this.ampEnvelope = new Envelope(sampleRate)
+
         this.oscillator_a.gain.baseValue = 1
         this.oscillator_b.gain.baseValue = 1
-        this.envelopes.push(new Envelope(sampleRate))
     }
 
-    release() {
-        this.envelopes[0].release()
+    noteOn(freq: number) {
+        this.oscillator_a.frequency.baseValue = freq
+        this.oscillator_b.frequency.baseValue = freq
+
+        this.ampEnvelope.trigger()
+    }
+
+    noteOff() {
+        this.ampEnvelope.release()
     }
 
     step_audio_rate() {
-        this.envelopes.forEach(_ => _.step())
+        this.ampEnvelope.step()
     }
 
     process() {
 
-        let sample_a = this.oscillator_a.process()
+        let a = this.oscillator_a.process()
+        let b = this.oscillator_b.process()
 
-        sample_a *= this.envelopes[0].value
+        let mixed = (a + b) * 0.5
 
-        return sample_a
+        mixed *= this.ampEnvelope.value
+
+        return mixed
     }
 }

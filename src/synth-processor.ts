@@ -10,20 +10,12 @@ class SynthProcessor extends AudioWorkletProcessor {
         this.voice = new Voice(sampleRate)
 
         this.port.onmessage = (event) => {
-            if (event.data.frequency) {
-                this.voice.oscillator_a.frequency.baseValue = event.data.frequency
-            }
             if (event.data.envelope) {
-                if (event.data.envelope.attack) {
-                    this.voice.envelopes[0].set_envelope({
-                        attackTimeInSeconds: 0.01,
-                        decayTimeInSeconds: 0.01,
-                        sustainLevel: 0.1,
-                        releaseTimeInSeconds: 10
-                    })
-                } else if (event.data.envelope.release) {
-                    this.voice.release()
-                }
+                this.voice.ampEnvelope.set_envelope(event.data.envelope)
+            } else if (event.data.frequency) {
+                this.voice.noteOn(event.data.frequency)
+            } else if (event.data.noteOff) {
+                this.voice.noteOff()
             }
         }
     }

@@ -35,13 +35,16 @@ export default class Envelope {
             releaseTimeInSeconds,
         } = params
         let { SampleRate } = this
-        this.envelope = 0
-        this.envState = 'attack'
 
         this.sustainLevel = sustainLevel
         this.attackRate = 1.0 / (attackTimeInSeconds * SampleRate)
         this.decayRate = 1.0 / (decayTimeInSeconds * SampleRate)
         this.releaseRate = 1.0 / (releaseTimeInSeconds * SampleRate)
+    }
+
+    trigger() {
+        this.envelope = 0
+        this.envState = 'attack'
     }
 
     release() {
