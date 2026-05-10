@@ -265,6 +265,7 @@ export class Voice implements Signal {
     filter: StateVariableFilter
 
     filterEnvelope: Envelope
+    pitchEnvelope: Envelope
 
     lfo: LFO
 
@@ -286,12 +287,16 @@ export class Voice implements Signal {
 
         this.filter.type = 'lowpass'
         this.filter.gain.setValue(1)
-        this.filter.resonance.setValue(1)
-        this.filter.cutoff.setValue(12000)
+        this.filter.resonance.setValue(.7)
+        this.filter.cutoff.setValue(1600)
 
-        this.oscillator_a.pulseWidth.setValue(0.5)
-        this.modMatrix.connect(this.filterEnvelope, this.filter.cutoff, -9060)
-        this.modMatrix.connect(this.lfo, this.oscillator_a.pulseWidth, 0.333)
+        this.pitchEnvelope = new Envelope(sampleRate)
+
+        this.oscillator_a.pulseWidth.setValue(0.77)
+        this.modMatrix.connect(this.filterEnvelope, this.filter.cutoff, 600)
+        this.modMatrix.connect(this.lfo, this.oscillator_a.pulseWidth, 0.2)
+
+        this.modMatrix.connect(this.pitchEnvelope, this.oscillator_a.frequency, 440 * Math.pow(2, 7 / 12))
 
         this.lfo.frequency.setValue(0.5)
 
@@ -302,11 +307,13 @@ export class Voice implements Signal {
 
         this.ampEnvelope.trigger()
         this.filterEnvelope.trigger()
+        this.pitchEnvelope.trigger()
     }
 
     noteOff() {
         this.ampEnvelope.release()
         this.filterEnvelope.release()
+        this.pitchEnvelope.release()
     }
 
     //drift = 1
@@ -322,6 +329,7 @@ export class Voice implements Signal {
 
         this.ampEnvelope.process()
         this.filterEnvelope.process()
+        this.pitchEnvelope.process()
 
         this.modMatrix.process()
 

@@ -11,8 +11,15 @@ class SynthProcessor extends AudioWorkletProcessor {
 
         this.port.onmessage = (event) => {
             if (event.data.envelope) {
-                this.voice.ampEnvelope.set_envelope(event.data.envelope)
-                this.voice.filterEnvelope.set_envelope(event.data.envelope)
+                if (event.data.envelope.amp) {
+                    this.voice.ampEnvelope.set_envelope(event.data.envelope.amp)
+                } 
+                if (event.data.envelope.filter) {
+                    this.voice.filterEnvelope.set_envelope(event.data.envelope.filter)
+                } 
+                if (event.data.envelope.pitch) {
+                    this.voice.pitchEnvelope.set_envelope(event.data.envelope.pitch)
+                }
             } else if (event.data.frequency) {
                 this.voice.noteOn(event.data.frequency)
             } else if (event.data.noteOff) {
