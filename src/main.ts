@@ -103,7 +103,11 @@ function init_keyboard() {
 
 
 
+let activeNotes: number[] = []
 function playSong() {
+  if (synth_worklet === undefined) {
+    return
+  }
   let song = [
     [0.0, 440, 0.5],   // At 0 seconds, play A for 0.5 seconds
     [0.5, 494, 0.5],   // At 0.5 seconds, play B for 0.5 seconds
@@ -128,11 +132,13 @@ function playSong() {
     setTimeout(() => {
       synth_worklet.port.postMessage({ frequency })
       synth_worklet.port.postMessage({ envelope: { attack: true } })
+      activeNotes.push(frequency)
     }, time * 1000)
 
     setTimeout(() => {
       synth_worklet.port.postMessage({ envelope: { release: true } })
-    }, (time + duration - 0.1) * 1000)
+      activeNotes = []
+    }, (time + duration - 0.4) * 1000)
   })
 }
 
@@ -267,6 +273,42 @@ function draw_fft(width: number, height: number) {
 
 }
 
+// Add piano note grid lines to your visualizer!
+function drawPianoGrid(width: number, height: number) {
+  const minFreq = 20;
+  const maxFreq = 20000;
+
+  // Note frequencies: C4=261.63Hz, C5=523.25Hz, C6=1046.50Hz
+  const noteFreqs = [130.81, 261.63, 523.25, 1046.50, 2093.00, 4186.01];
+  const noteNames = ['C3', 'C4', 'C5', 'C6', 'C7', 'C8'];
+
+  cx.font = '30px Arial'
+
+  noteFreqs.forEach((freq, idx) => {
+    // Use SAME log formula from your visualizer
+    const logFreq = Math.log(freq / minFreq) / Math.log(maxFreq / minFreq);
+    const x = logFreq * width;
+
+    cx.strokeStyle = '#ffffff80';
+    cx.beginPath();
+    cx.moveTo(x, 0);
+    cx.lineTo(x, height * 0.5);
+    cx.stroke();
+
+    cx.fillStyle = 'white';
+    cx.fillText(noteNames[idx], x + 2, 40);
+  });
+
+
+  // 3. Highlight specific notes being played
+  //const activeNotes = [440, 880, 1760]; // A4, A5, A6
+  activeNotes.forEach(freq => {
+    const logFreq = Math.log(freq / 20) / Math.log(20000 / 20);
+    const x = logFreq * width;
+    cx.fillStyle = '#ff000080';
+    cx.fillRect(x - 2, 0, 4, height * 0.5);
+  });
+}
 
 function worklet_frame() {
   const searchStart = (writeIndex - 4096 + BUFFER_SIZE) % BUFFER_SIZE
@@ -277,6 +319,8 @@ function worklet_frame() {
 
   draw_samples(window, 1920, 1080/2, 520)
   draw_fft(1920, 1080)
+  drawPianoGrid(1920, 1080)
+
 }
 
 
