@@ -1,5 +1,5 @@
 import Envelope from "./envelope"
-import { BiquadFilter } from "./filter"
+import { StateVariableFilter } from "./filter"
 
 
 export interface Signal {
@@ -47,6 +47,8 @@ this.oscillator_a.frequency.modulations.push(
     this.lfo.value * 20
 )
 
+pulseWidth =
+    0.5 + lfo.value * 0.2
 */
 
 /*
@@ -204,7 +206,8 @@ export class Voice implements Signal {
 
     ampEnvelope: Envelope
 
-    filter: BiquadFilter
+    //filter: BiquadFilter
+    filter: StateVariableFilter
 
     filterEnvelope: Envelope
 
@@ -215,25 +218,30 @@ export class Voice implements Signal {
         this.oscillator_b = new Oscillator(sampleRate)
         this.ampEnvelope = new Envelope(sampleRate)
 
-        this.oscillator_a.waveform = 'square'
-        this.oscillator_b.waveform = 'square'
+        this.oscillator_a.waveform = 'sawtooth'
+        this.oscillator_b.waveform = 'triangle'
 
         this.modMatrix = new ModulationMatrix()
 
         this.filterEnvelope = new Envelope(sampleRate)
-        this.filter = new BiquadFilter(sampleRate)
+        //this.filter = new BiquadFilter(sampleRate)
+        this.filter = new StateVariableFilter(sampleRate)
 
         this.filter.type = 'lowpass'
-        this.filter.gain.setValue(0.9)
-        this.filter.resonance.setValue(0.0001)
-        this.filter.cutoff.setValue(100)
+        this.filter.gain.setValue(1)
+        this.filter.resonance.setValue(20)
+        this.filter.cutoff.setValue(200)
 
-        this.modMatrix.connect(this.filterEnvelope, this.filter.cutoff, 30000)
+        this.modMatrix.connect(this.filterEnvelope, this.filter.cutoff, 4000)
     }
 
     noteOn(freq: number) {
+        //this.oscillator_a.phase = Math.random()
+        this.oscillator_b.phase = Math.random()
         this.oscillator_a.frequency.setValue(freq)
-        this.oscillator_b.frequency.setValue(freq)
+        let cents = 3
+        this.oscillator_b.frequency.setValue(freq * Math.pow(2, cents / 1200))
+        //this.oscillator_b.frequency.setValue(freq * 1.003)
 
         this.ampEnvelope.trigger()
         this.filterEnvelope.trigger()
@@ -257,12 +265,21 @@ export class Voice implements Signal {
 
         let mixed = (a + b) * 0.5
 
-        mixed *= this.ampEnvelope.getValue()
 
         mixed = this.filter.process(mixed)
 
+        mixed *= this.ampEnvelope.getValue()
+
+
+        let drive = 5
+        mixed = Math.tanh(mixed * drive)
+
+        this.previousOutput = mixed
+
         return mixed
     }
+
+    previousOutput = 0
 }
 
 export interface Modulator {

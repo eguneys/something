@@ -55,6 +55,8 @@ export class StateVariableFilter implements Signal {
         )
     }
 
+    type: 'lowpass' | 'highpass' | 'bandpass' | 'notch' = 'lowpass'
+
     process(input: number): number {
 
         let cutoff = this.cutoff.getValue()
@@ -76,7 +78,8 @@ export class StateVariableFilter implements Signal {
             )
 
         // damping
-        let damp = 1 / q
+        //let damp = 1 / q
+        let damp = Math.min(2, 2/q)
 
         // SVF core
         let high =
@@ -90,12 +93,28 @@ export class StateVariableFilter implements Signal {
         // outputs
         let lowpass = this.low
 
-        // optional:
-        // let bandpass = this.band
-        // let highpass = high
-        // let notch = high + lowpass
+        let bandpass = this.band
+        let highpass = high
+        let notch = highpass + lowpass
 
-        return lowpass * this.gain.getValue()
+        let output = lowpass
+
+        switch (this.type) {
+            case 'lowpass':
+                output = lowpass
+                break
+            case 'highpass':
+                output = highpass
+                break
+            case 'bandpass':
+                output = bandpass
+                break
+            case 'notch':
+                output = notch
+
+        }
+
+        return output * this.gain.getValue()
     }
 
     reset() {
