@@ -43,13 +43,13 @@ export class StateVariableFilter implements Signal {
 
         // resonance/Q
         this.resonance = new Parameter(
-            0.1,
+            0.01,
             10,
             0.707
         )
 
         this.gain = new Parameter(
-            0,
+            0.001,
             2,
             1
         )
@@ -83,8 +83,8 @@ export class StateVariableFilter implements Signal {
             )
 
         // damping
-        //let damp = 1 / q
-        let damp = Math.min(2, 2/q)
+        let damp = 1 / Math.max(0.5, q)
+        //let damp = Math.min(2, 2/q)
 
         // SVF core
         let high =

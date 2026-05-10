@@ -24,7 +24,7 @@ export default class Envelope implements Modulator {
 
         this.attack = new Parameter(0.001, 10, 0.01)
         this.decay = new Parameter(0.001, 10, 0.1)
-        this.sustain = new Parameter(0, 1, 0.7)
+        this.sustain = new Parameter(0.001, 1, 0.7)
         this.releaseParameter = new Parameter(0.001, 10, 0.5)
     }
 

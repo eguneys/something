@@ -7,11 +7,12 @@ export interface Signal {
 }
 
 export class Parameter {
-    private baseValue = 0
-    private modulationSum = 0
-
+    private normalized = 0.5  // Store normalized value (0-1) internally
+    
     private minValue: number
     private maxValue: number
+    
+    private modulationSum = 0
 
     // Smoothed value actually used by DSP
     private currentValue = 0
@@ -27,22 +28,42 @@ export class Parameter {
         defaultValue: number,
         smoothingFactor = 0.001
     ) {
+
+        if (minValue <= 0) {
+            throw new Error('minValue must be > 0 for exponential mapping')
+        }
+        if (maxValue <= minValue) {
+            throw new Error('maxVlaue must be greater than minValue')
+        }
+
         this.minValue = minValue
         this.maxValue = maxValue
 
-        this.baseValue = this.clamp(defaultValue)
-        this.currentValue = this.baseValue
+        // Convert defaultValue to normalized
+        this.normalized = this.valueToNormalized(defaultValue)
+        this.currentValue = defaultValue
 
         this.smoothingFactor = smoothingFactor
     }
 
-    setValue(value: number) {
-        this.baseValue = this.clamp(value)
+    setNormalizedValue(normalized: number) {
+        this.normalized = Math.max(0, Math.min(1, normalized))
+    }
+
+    setValue(value: number, is_immediate?: boolean) {
+        // Convert value to normalized for storage
+        this.normalized = this.valueToNormalized(this.clamp(value))
+        if (is_immediate) {
+            this.currentValue = this.getValueFromNormalized()
+        }
     }
 
     // Call once per sample (or audio frame)
     process() {
-        const target = this.clamp(this.baseValue + this.modulationSum)
+        // Get the target value from normalized + modulation
+        const target = this.clamp(
+            this.getValueFromNormalized() + this.modulationSum
+        )
 
         // One-pole smoothing
         this.currentValue +=
@@ -51,6 +72,10 @@ export class Parameter {
 
     getValue() {
         return this.currentValue
+    }
+    
+    getNormalizedValue() {
+        return this.normalized
     }
 
     modulate(amount: number) {
@@ -63,6 +88,15 @@ export class Parameter {
 
     setSmoothing(factor: number) {
         this.smoothingFactor = Math.min(1, Math.max(0, factor))
+    }
+
+    private getValueFromNormalized(): number {
+        return this.minValue *
+            Math.pow(this.maxValue / this.minValue, this.normalized)
+    }
+
+    private valueToNormalized(value: number): number {
+        return Math.log(value / this.minValue) / Math.log(this.maxValue / this.minValue)
     }
 
     private clamp(value: number) {
@@ -118,7 +152,7 @@ export class Oscillator implements Signal {
 
     constructor(readonly sampleRate: number) {
         this.frequency = new Parameter(20, 20000, 440)
-        this.gain = new Parameter(0, 1, 0.5)
+        this.gain = new Parameter(0.001, 1, 0.5)
         this.pulseWidth = new Parameter(0.01, 0.99, 0.5)
     }
 
@@ -140,7 +174,7 @@ export class Oscillator implements Signal {
         }
 
 
-        let value = getWaveformValue(this.waveform, this.pulseWidth, this.phase)
+        let value = getWaveformValue(this.waveform, this.pulseWidth, this.phase, freq / sampleRate)
 
         return value * gain
     }
@@ -162,13 +196,13 @@ export class LFO implements Signal, Modulator {
     tempoDivision = 1
 
     constructor(readonly sampleRate: number) {
-        this.frequency = new Parameter(20, 20000, 440)
-        this.gain = new Parameter(0, 1, 0.5)
+        this.frequency = new Parameter(0.1, 20000, 440)
+        this.gain = new Parameter(0.001, 1, 0.5)
         this.pulseWidth = new Parameter(0.01, 0.99, 0.5)
     }
 
     getValue(): number {
-        let value = getWaveformValue(this.waveform, this.pulseWidth, this.phase)
+        let value = getWaveformValue(this.waveform, this.pulseWidth, this.phase, this.frequency.getValue() / this.sampleRate)
         return value * this.gain.getValue()
     }
 
@@ -191,7 +225,7 @@ export class LFO implements Signal, Modulator {
             this.phase -= 1
         }
 
-        let value = getWaveformValue(this.waveform, this.pulseWidth, this.phase)
+        let value = getWaveformValue(this.waveform, this.pulseWidth, this.phase, freq / sampleRate)
 
         return value * gain
     }
@@ -199,17 +233,24 @@ export class LFO implements Signal, Modulator {
 }
 
 
-function getWaveformValue(waveform: WaveForm, pulseWidth: Parameter, phase: number): number {
+function getWaveformValue(waveform: WaveForm, pulseWidth: Parameter, phase: number, phaseIncrement: number): number {
+    let res = 0
     switch (waveform) {
         case 'sine':
             return Math.sin(phase * Math.PI * 2)
         case 'triangle':
             return 1 - Math.abs(phase * 4 - 2)
         case 'sawtooth':
-            return phase * 2 - 1
+            res =  phase * 2 - 1
+            res -= polyBlep(phase, phaseIncrement)
+            return res
         case 'square':
             let pw = pulseWidth.getValue()
-            return phase < pw ? 1 : -1
+            res =  phase < pw ? 1 : -1
+            res += polyBlep(phase, phaseIncrement)
+            let t2 = (phase - pulseWidth.getValue() + 1) % 1
+            res -= polyBlep(t2, phaseIncrement)
+            return res
         default:
             return Math.sin(phase * Math.PI * 2)
     }
@@ -236,7 +277,7 @@ export class Voice implements Signal {
         this.oscillator_a = new Oscillator(sampleRate)
         this.ampEnvelope = new Envelope(sampleRate)
 
-        this.oscillator_a.waveform = 'sine'
+        this.oscillator_a.waveform = 'square'
 
         this.modMatrix = new ModulationMatrix()
 
@@ -244,21 +285,20 @@ export class Voice implements Signal {
         this.filter = new StateVariableFilter(sampleRate)
 
         this.filter.type = 'lowpass'
-        this.filter.gain.setValue(2)
+        this.filter.gain.setValue(1)
         this.filter.resonance.setValue(1)
-        this.filter.cutoff.setValue(400)
+        this.filter.cutoff.setValue(12000)
 
-        this.oscillator_a.pulseWidth.setValue(0.25)
-        this.modMatrix.connect(this.filterEnvelope, this.filter.cutoff, 1000)
-        this.modMatrix.connect(this.lfo, this.oscillator_a.pulseWidth, 0.5)
+        this.oscillator_a.pulseWidth.setValue(0.5)
+        this.modMatrix.connect(this.filterEnvelope, this.filter.cutoff, -9060)
+        this.modMatrix.connect(this.lfo, this.oscillator_a.pulseWidth, 0.333)
 
-        this.lfo.frequency.setValue(60)
+        this.lfo.frequency.setValue(0.5)
 
     }
 
     noteOn(freq: number) {
         this.oscillator_a.frequency.setValue(freq)
-        //this.oscillator_a.frequency.setValue(freq * Math.pow(2, cents / 1200))
 
         this.ampEnvelope.trigger()
         this.filterEnvelope.trigger()
@@ -269,25 +309,32 @@ export class Voice implements Signal {
         this.filterEnvelope.release()
     }
 
+    //drift = 1
     processBlock() {
-        this.lfo.process()
+        //this.lfo.process()
+        //this.drift += this.drift * 0.1 * Math.sign(0.5 - Math.random())
+        //let drift = this.drift
+        //this.oscillator_a.frequency.setValue(this.oscillator_a.frequency.getValue() * 1 + drift, true)
     }
-
+    
     process() {
+        this.lfo.process()
+
         this.ampEnvelope.process()
         this.filterEnvelope.process()
 
         this.modMatrix.process()
 
+
         let a = this.oscillator_a.process()
         let mixed = a
 
-        //mixed = this.filter.process(mixed)
+        let drive = 1
+        mixed = Math.tanh(mixed * drive)
 
-        let drive = 7
-        //mixed = Math.tanh(mixed * drive)
+        mixed = this.filter.process(mixed)
 
-        //mixed = Math.max(-0.98, Math.min(0.98, mixed))
+        mixed = Math.tanh(mixed * 1.5)
 
         mixed *= this.ampEnvelope.getValue()
 
@@ -345,4 +392,22 @@ export class ModulationMatrix {
             route.destination.modulate(modulation)
         }
     }
+}
+
+
+function polyBlep(t: number, dt: number): number {
+
+    // rising edge
+    if (t < dt) {
+        t /= dt
+        return t + t - t * t - 1
+    }
+
+    // falling edge
+    if (t > 1 - dt) {
+        t = (t - 1) / dt
+        return t * t + t + t + 1
+    }
+
+    return 0
 }
