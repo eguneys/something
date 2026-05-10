@@ -64,6 +64,12 @@ export default class Envelope implements Modulator {
     }
 
     process() {
+
+        this.attack.process()
+        this.decay.process()
+        this.sustain.process()
+        this.releaseParameter.process()
+
         const dt = 1 / this.SampleRate
 
         switch (this.state) {

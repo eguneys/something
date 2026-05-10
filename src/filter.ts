@@ -59,6 +59,11 @@ export class StateVariableFilter implements Signal {
 
     process(input: number): number {
 
+        this.cutoff.process()
+        this.resonance.process()
+        this.gain.process()
+
+
         let cutoff = this.cutoff.getValue()
         let q = this.resonance.getValue()
 
@@ -224,6 +229,12 @@ export class BiquadFilter implements Signal {
     }
     
     process(input: number): number {
+
+        this.cutoff.process()
+        this.resonance.process()
+        this.gain.process()
+
+
         // Update coefficients if parameters changed
         this.updateCoefficients()
         

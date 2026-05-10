@@ -32,10 +32,10 @@ function init_gains() {
 
   synth_worklet.port.postMessage({
     envelope: {
-      attackTimeInSeconds: 0.001,
-      decayTimeInSeconds: 0.8,
-      sustainLevel: 0.7,
-      releaseTimeInSeconds: 0.4
+      attackTimeInSeconds: 0.01,
+      decayTimeInSeconds: 0.1,
+      sustainLevel: 0,
+      releaseTimeInSeconds: 0.2
     }
   })
 }

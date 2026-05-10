@@ -8,26 +8,50 @@ export interface Signal {
 
 export class Parameter {
     private baseValue = 0
-    private modulationSum: number = 0
+    private modulationSum = 0
 
     private minValue: number
     private maxValue: number
 
+    // Smoothed value actually used by DSP
+    private currentValue = 0
 
-    constructor(minValue: number, maxValue: number, defaultValue: number) {
+    // 0..1
+    // smaller = smoother/slower
+    // larger = snappier/faster
+    private smoothingFactor: number
+
+    constructor(
+        minValue: number,
+        maxValue: number,
+        defaultValue: number,
+        smoothingFactor = 0.001
+    ) {
         this.minValue = minValue
         this.maxValue = maxValue
-        this.baseValue = defaultValue
+
+        this.baseValue = this.clamp(defaultValue)
+        this.currentValue = this.baseValue
+
+        this.smoothingFactor = smoothingFactor
     }
 
     setValue(value: number) {
         this.baseValue = this.clamp(value)
     }
 
-    getValue() {
-        return this.clamp(this.baseValue + this.modulationSum)
+    // Call once per sample (or audio frame)
+    process() {
+        const target = this.clamp(this.baseValue + this.modulationSum)
+
+        // One-pole smoothing
+        this.currentValue +=
+            (target - this.currentValue) * this.smoothingFactor
     }
 
+    getValue() {
+        return this.currentValue
+    }
 
     modulate(amount: number) {
         this.modulationSum += amount
@@ -37,19 +61,14 @@ export class Parameter {
         this.modulationSum = 0
     }
 
+    setSmoothing(factor: number) {
+        this.smoothingFactor = Math.min(1, Math.max(0, factor))
+    }
+
     private clamp(value: number) {
         return Math.min(this.maxValue, Math.max(this.minValue, value))
     }
 }
-
-/*
-this.oscillator_a.frequency.modulations.push(
-    this.lfo.value * 20
-)
-
-pulseWidth =
-    0.5 + lfo.value * 0.2
-*/
 
 /*
             let p = phase
@@ -65,9 +84,6 @@ pulseWidth =
                 width = 0.5 + Math.sin(timeSinceStart * 20) * 0.3
             }
 
-            //sample = phase * 2 - 1
-            sample = Math.sin(phase * Math.PI * 2)
-            //sample = 1 - Math.abs(phase * 2 - 1) * 2
             //sample = phase < width ? 1 : - 1
 
 
@@ -86,18 +102,8 @@ pulseWidth =
                 }
             }
 
-
-
-
             const steps = 6;
             //sample = Math.round(sample * steps) / steps;
-
-
-            let drive = 0.7
-            //sample = Math.tanh(sample * drive)
-
-            //sample = Math.max(-0.98, Math.min(0.98, sample))
-
 
 */
 export class Oscillator implements Signal {
@@ -117,6 +123,10 @@ export class Oscillator implements Signal {
     }
 
     process() {
+
+        this.frequency.process()
+        this.gain.process()
+        this.pulseWidth.process()
 
         let sampleRate = this.sampleRate
 
@@ -163,6 +173,12 @@ export class LFO implements Signal, Modulator {
     }
 
     process( ){
+
+
+        this.frequency.process()
+        this.gain.process()
+        this.pulseWidth.process()
+
         let sampleRate = this.sampleRate
 
         let freq = this.frequency.getValue()
@@ -220,7 +236,7 @@ export class Voice implements Signal {
         this.oscillator_a = new Oscillator(sampleRate)
         this.ampEnvelope = new Envelope(sampleRate)
 
-        this.oscillator_a.waveform = 'square'
+        this.oscillator_a.waveform = 'sine'
 
         this.modMatrix = new ModulationMatrix()
 
@@ -241,8 +257,6 @@ export class Voice implements Signal {
     }
 
     noteOn(freq: number) {
-        this.lfo.phase = Math.random()
-        this.oscillator_a.phase = Math.random()
         this.oscillator_a.frequency.setValue(freq)
         //this.oscillator_a.frequency.setValue(freq * Math.pow(2, cents / 1200))
 
@@ -268,10 +282,12 @@ export class Voice implements Signal {
         let a = this.oscillator_a.process()
         let mixed = a
 
-        mixed = this.filter.process(mixed)
+        //mixed = this.filter.process(mixed)
 
-        let drive = 13
-        mixed = Math.tanh(mixed * drive)
+        let drive = 7
+        //mixed = Math.tanh(mixed * drive)
+
+        //mixed = Math.max(-0.98, Math.min(0.98, mixed))
 
         mixed *= this.ampEnvelope.getValue()
 
@@ -297,10 +313,6 @@ interface ModulationRoute {
 }
 
 
-/*
-processBlock()
-processSample()
-*/
 export class ModulationMatrix {
     private routes: ModulationRoute[] = []
 
