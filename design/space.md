@@ -82,3 +82,14 @@ Synth
  │    └── Mixer
  │
  └── Global FX
+
+
+
+ ## Sound character
+
+* [ ]  basses
+* [ ] plucks
+* [ ] acid
+* [ ] pads
+* [ ] brass
+* [ ] analog sweeps

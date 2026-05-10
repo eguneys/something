@@ -33,11 +33,9 @@ class SynthProcessor extends AudioWorkletProcessor {
             this.startFrame = frame
         }
 
+        this.voice.processBlock()
 
         for (let i = 0; i < channel.length; i++) {
-
-            //this.voice.step_audio_rate()
-
 
             //let sampleSinceStart = (frame + i) - this.startFrame
             //const timeSinceStart = sampleSinceStart / sampleRate

@@ -202,46 +202,49 @@ function getWaveformValue(waveform: WaveForm, pulseWidth: Parameter, phase: numb
 export class Voice implements Signal {
     
     oscillator_a: Oscillator
-    oscillator_b: Oscillator
 
     ampEnvelope: Envelope
 
-    //filter: BiquadFilter
     filter: StateVariableFilter
 
     filterEnvelope: Envelope
 
+    lfo: LFO
+
     modMatrix: ModulationMatrix
 
     constructor(sampleRate: number) {
+
+        this.lfo = new LFO(sampleRate)
+
         this.oscillator_a = new Oscillator(sampleRate)
-        this.oscillator_b = new Oscillator(sampleRate)
         this.ampEnvelope = new Envelope(sampleRate)
 
-        this.oscillator_a.waveform = 'sawtooth'
-        this.oscillator_b.waveform = 'triangle'
+        this.oscillator_a.waveform = 'square'
 
         this.modMatrix = new ModulationMatrix()
 
         this.filterEnvelope = new Envelope(sampleRate)
-        //this.filter = new BiquadFilter(sampleRate)
         this.filter = new StateVariableFilter(sampleRate)
 
         this.filter.type = 'lowpass'
-        this.filter.gain.setValue(1)
-        this.filter.resonance.setValue(20)
-        this.filter.cutoff.setValue(200)
+        this.filter.gain.setValue(2)
+        this.filter.resonance.setValue(1)
+        this.filter.cutoff.setValue(400)
 
-        this.modMatrix.connect(this.filterEnvelope, this.filter.cutoff, 4000)
+        this.oscillator_a.pulseWidth.setValue(0.25)
+        this.modMatrix.connect(this.filterEnvelope, this.filter.cutoff, 1000)
+        this.modMatrix.connect(this.lfo, this.oscillator_a.pulseWidth, 0.5)
+
+        this.lfo.frequency.setValue(60)
+
     }
 
     noteOn(freq: number) {
-        //this.oscillator_a.phase = Math.random()
-        this.oscillator_b.phase = Math.random()
+        this.lfo.phase = Math.random()
+        this.oscillator_a.phase = Math.random()
         this.oscillator_a.frequency.setValue(freq)
-        let cents = 3
-        this.oscillator_b.frequency.setValue(freq * Math.pow(2, cents / 1200))
-        //this.oscillator_b.frequency.setValue(freq * 1.003)
+        //this.oscillator_a.frequency.setValue(freq * Math.pow(2, cents / 1200))
 
         this.ampEnvelope.trigger()
         this.filterEnvelope.trigger()
@@ -252,34 +255,28 @@ export class Voice implements Signal {
         this.filterEnvelope.release()
     }
 
-    process() {
+    processBlock() {
+        this.lfo.process()
+    }
 
+    process() {
         this.ampEnvelope.process()
         this.filterEnvelope.process()
 
         this.modMatrix.process()
 
         let a = this.oscillator_a.process()
-        let b = this.oscillator_b.process()
-
-
-        let mixed = (a + b) * 0.5
-
+        let mixed = a
 
         mixed = this.filter.process(mixed)
 
-        mixed *= this.ampEnvelope.getValue()
-
-
-        let drive = 5
+        let drive = 13
         mixed = Math.tanh(mixed * drive)
 
-        this.previousOutput = mixed
+        mixed *= this.ampEnvelope.getValue()
 
         return mixed
     }
-
-    previousOutput = 0
 }
 
 export interface Modulator {
