@@ -34,7 +34,6 @@ class SynthProcessor extends AudioWorkletProcessor {
         }
 
 
-        console.log(this.voice.filter.cutoff.getValue())
         for (let i = 0; i < channel.length; i++) {
 
             //this.voice.step_audio_rate()

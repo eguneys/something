@@ -224,11 +224,11 @@ export class Voice implements Signal {
         this.filter = new BiquadFilter(sampleRate)
 
         this.filter.type = 'lowpass'
-        this.filter.gain.setValue(1.5)
-        this.filter.resonance.setValue(2)
+        this.filter.gain.setValue(0.9)
+        this.filter.resonance.setValue(0.0001)
         this.filter.cutoff.setValue(100)
 
-        this.modMatrix.connect(this.filterEnvelope, this.filter.cutoff, 300)
+        this.modMatrix.connect(this.filterEnvelope, this.filter.cutoff, 30000)
     }
 
     noteOn(freq: number) {
