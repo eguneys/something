@@ -1,56 +1,113 @@
 import { Parameter, type Signal } from "./modulator"
 
-export class LowPassFilter2Pole implements Signal {
-    cutoff = new Parameter()
-    resonance = new Parameter()  // 0 to 1 (self-oscillation at 1)
-    gain = new Parameter()
-    
-    // Internal state
-    private z1: number = 0
-    private z2: number = 0
-    
-    constructor(readonly sampleRate: number) {}
-    
-    process(input: number) {
-        let cutoff = this.cutoff.getValue()
-        let resonance = this.resonance.getValue()
-        let gain = this.gain.getValue()
-        
-        // Clamp resonance
-        let r = Math.min(0.99, Math.max(0, resonance))
-        
-        // Calculate coefficient (0 to 1)
-        let c = 1 / Math.tan(Math.PI * cutoff / this.sampleRate)
-        let c2 = c * c
-        let sqrt2 = Math.sqrt(2)
-        
-        // Filter coefficients
-        let d = 1 / (1 + sqrt2 * c + c2)
-        
-        // Apply resonance (feedback)
-        let feedback = r * this.z1
-        
-        // Process sample
-        let output = (input + feedback - (sqrt2 * c + c2) * this.z1 - this.z2) * d
-        
-        // Update state
-        let newZ1 = output + this.z1
-        this.z2 = this.z1
-        this.z1 = newZ1
-        
-        return output * gain
+// Typical synth parameter ranges
+export const PARAMETER_RANGES = {
+    // Oscillator
+    OSC_FREQ: { min: 20, max: 20000, default: 440 },    // Hz
+    OSC_GAIN: { min: 0, max: 1, default: 0.5 },    // Linear
+    OSC_PULSE: { min: 0.01, max: 0.99, default: 0.5 },    // Ratio
+
+    // Filter
+    FILT_CUTOFF: { min: 20, max: 20000, default: 1000 },    // Hz
+    FILT_RES: { min: 0.707, max: 20, default: 0.707 },   // Q factor
+    FILT_GAIN: { min: 0, max: 2, default: 1 },       // Linear
+
+    // LFO
+    LFO_FREQ: { min: 0.01, max: 20, default: 2 },       // Hz
+    LFO_GAIN: { min: 0, max: 1, default: 0.5 },     // Linear
+
+    // Envelope
+    ENV_ATTACK: { min: 0.001, max: 10, default: 0.01 },    // Seconds
+    ENV_DECAY: { min: 0.001, max: 10, default: 0.1 },     // Seconds
+    ENV_SUSTAIN: { min: 0, max: 1, default: 0.7 },     // Level
+    ENV_RELEASE: { min: 0.001, max: 10, default: 0.5 },     // Seconds
+}
+
+export class StateVariableFilter implements Signal {
+
+    cutoff: Parameter
+    resonance: Parameter
+    gain: Parameter
+
+    // filter state
+    private low = 0
+    private band = 0
+
+    constructor(readonly sampleRate: number) {
+
+        this.cutoff = new Parameter(
+            20,
+            sampleRate * 0.45,
+            1000
+        )
+
+        // resonance/Q
+        this.resonance = new Parameter(
+            0.1,
+            10,
+            0.707
+        )
+
+        this.gain = new Parameter(
+            0,
+            2,
+            1
+        )
     }
-    
+
+    process(input: number): number {
+
+        let cutoff = this.cutoff.getValue()
+        let q = this.resonance.getValue()
+
+        // stability clamp
+        cutoff = Math.max(
+            20,
+            Math.min(this.sampleRate * 0.45, cutoff)
+        )
+
+        q = Math.max(0.001, q)
+
+        // normalized frequency
+        let f =
+            2 *
+            Math.sin(
+                Math.PI * cutoff / this.sampleRate
+            )
+
+        // damping
+        let damp = 1 / q
+
+        // SVF core
+        let high =
+            input -
+            this.low -
+            damp * this.band
+
+        this.band += f * high
+        this.low += f * this.band
+
+        // outputs
+        let lowpass = this.low
+
+        // optional:
+        // let bandpass = this.band
+        // let highpass = high
+        // let notch = high + lowpass
+
+        return lowpass * this.gain.getValue()
+    }
+
     reset() {
-        this.z1 = 0
-        this.z2 = 0
+        this.low = 0
+        this.band = 0
     }
 }
 
 export class BiquadFilter implements Signal {
-    cutoff = new Parameter()
-    resonance = new Parameter()  // Q factor
-    gain = new Parameter()
+    cutoff: Parameter
+    resonance: Parameter
+    gain: Parameter
     
     // Filter type
     type: 'lowpass' | 'highpass' | 'bandpass' | 'notch' = 'lowpass'
@@ -63,17 +120,40 @@ export class BiquadFilter implements Signal {
     private a2: number = 0
     
     // State (previous samples)
-    private z1: number = 0  // x[n-1], y[n-1]
-    private z2: number = 0  // x[n-2], y[n-2]
+    private x1 = 0
+    private x2 = 0
+    private y1 = 0
+    private y2 = 0
     
     constructor(readonly sampleRate: number) {
+        this.cutoff = new Parameter(20, 20000, 1000) // 1kHz default
+        this.resonance = new Parameter(0.707, 20, 0.707) // Butterworth (no resonance peak)
+        this.gain = new Parameter(0, 2, 1)
         this.updateCoefficients()
     }
+
+    lastCutoff?: number
+    lastQ?: number
     
     private updateCoefficients() {
+
+
         let cutoff = this.cutoff.getValue()
         let q = this.resonance.getValue()
         if (q < 0.001) q = 0.001  // Prevent division by zero
+
+
+        cutoff = Math.max(
+            20,
+            Math.min(this.sampleRate * 0.45, cutoff)
+        )
+
+        if (cutoff !== this.lastCutoff || q !== this.lastQ) {
+            this.lastCutoff = cutoff
+            this.lastQ = q
+        }
+
+
         
         let w0 = 2 * Math.PI * cutoff / this.sampleRate
         let cos = Math.cos(w0)
@@ -130,20 +210,27 @@ export class BiquadFilter implements Signal {
         
         // Apply filter
         let output = this.b0 * input + 
-                     this.b1 * this.z1 + 
-                     this.b2 * this.z2 - 
-                     this.a1 * this.z1 - 
-                     this.a2 * this.z2
+                     this.b1 * this.x1 + 
+                     this.b2 * this.x2 - 
+                     this.a1 * this.y1 - 
+                     this.a2 * this.y2
         
-        // Update delay lines
-        this.z2 = this.z1
-        this.z1 = output
+        // shift input history
+        this.x2 = this.x1
+        this.x1 = input
+
+        // shift output history
+        this.y2 = this.y1
+        this.y1 = output
+
         
         return output * this.gain.getValue()
     }
     
     reset() {
-        this.z1 = 0
-        this.z2 = 0
+        this.x1 = 0
+        this.x2 = 0
+        this.y1 = 0
+        this.y2 = 0
     }
 }

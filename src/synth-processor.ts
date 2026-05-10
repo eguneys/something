@@ -12,6 +12,7 @@ class SynthProcessor extends AudioWorkletProcessor {
         this.port.onmessage = (event) => {
             if (event.data.envelope) {
                 this.voice.ampEnvelope.set_envelope(event.data.envelope)
+                this.voice.filterEnvelope.set_envelope(event.data.envelope)
             } else if (event.data.frequency) {
                 this.voice.noteOn(event.data.frequency)
             } else if (event.data.noteOff) {
@@ -33,9 +34,10 @@ class SynthProcessor extends AudioWorkletProcessor {
         }
 
 
+        console.log(this.voice.filter.cutoff.getValue())
         for (let i = 0; i < channel.length; i++) {
 
-            this.voice.step_audio_rate()
+            //this.voice.step_audio_rate()
 
 
             //let sampleSinceStart = (frame + i) - this.startFrame

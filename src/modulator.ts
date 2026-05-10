@@ -1,4 +1,5 @@
 import Envelope from "./envelope"
+import { BiquadFilter } from "./filter"
 
 
 export interface Signal {
@@ -9,12 +10,22 @@ export class Parameter {
     private baseValue = 0
     private modulationSum: number = 0
 
+    private minValue: number
+    private maxValue: number
+
+
+    constructor(minValue: number, maxValue: number, defaultValue: number) {
+        this.minValue = minValue
+        this.maxValue = maxValue
+        this.baseValue = defaultValue
+    }
+
     setValue(value: number) {
-        this.baseValue = value
+        this.baseValue = this.clamp(value)
     }
 
     getValue() {
-        return this.baseValue + this.modulationSum
+        return this.clamp(this.baseValue + this.modulationSum)
     }
 
 
@@ -24,6 +35,10 @@ export class Parameter {
 
     resetModulation() {
         this.modulationSum = 0
+    }
+
+    private clamp(value: number) {
+        return Math.min(this.maxValue, Math.max(this.minValue, value))
     }
 }
 
@@ -85,15 +100,19 @@ this.oscillator_a.frequency.modulations.push(
 */
 export class Oscillator implements Signal {
 
-    frequency = new Parameter()
-    gain = new Parameter()
-    pulseWidth = new Parameter()
+    frequency: Parameter
+    gain: Parameter
+    pulseWidth: Parameter
 
     phase = 0
 
     waveform: WaveForm = 'sine'
 
-    constructor(readonly sampleRate: number) {}
+    constructor(readonly sampleRate: number) {
+        this.frequency = new Parameter(20, 20000, 440)
+        this.gain = new Parameter(0, 1, 0.5)
+        this.pulseWidth = new Parameter(0.01, 0.99, 0.5)
+    }
 
     process() {
 
@@ -119,9 +138,9 @@ export class Oscillator implements Signal {
 export type WaveForm = 'sine' | 'triangle' | 'sawtooth' | 'square'
 
 export class LFO implements Signal, Modulator {
-    frequency = new Parameter()
-    gain = new Parameter()
-    pulseWidth = new Parameter()
+    frequency: Parameter
+    gain: Parameter
+    pulseWidth: Parameter
 
     phase = 0
 
@@ -130,7 +149,11 @@ export class LFO implements Signal, Modulator {
     syncToTempo: boolean = false
     tempoDivision = 1
 
-    constructor(readonly sampleRate: number) {}
+    constructor(readonly sampleRate: number) {
+        this.frequency = new Parameter(20, 20000, 440)
+        this.gain = new Parameter(0, 1, 0.5)
+        this.pulseWidth = new Parameter(0.01, 0.99, 0.5)
+    }
 
     getValue(): number {
         let value = getWaveformValue(this.waveform, this.pulseWidth, this.phase)
@@ -181,13 +204,31 @@ export class Voice implements Signal {
 
     ampEnvelope: Envelope
 
+    filter: BiquadFilter
+
+    filterEnvelope: Envelope
+
+    modMatrix: ModulationMatrix
+
     constructor(sampleRate: number) {
         this.oscillator_a = new Oscillator(sampleRate)
         this.oscillator_b = new Oscillator(sampleRate)
         this.ampEnvelope = new Envelope(sampleRate)
 
-        this.oscillator_a.gain.setValue(1)
-        this.oscillator_b.gain.setValue(1)
+        this.oscillator_a.waveform = 'square'
+        this.oscillator_b.waveform = 'square'
+
+        this.modMatrix = new ModulationMatrix()
+
+        this.filterEnvelope = new Envelope(sampleRate)
+        this.filter = new BiquadFilter(sampleRate)
+
+        this.filter.type = 'lowpass'
+        this.filter.gain.setValue(1.5)
+        this.filter.resonance.setValue(2)
+        this.filter.cutoff.setValue(100)
+
+        this.modMatrix.connect(this.filterEnvelope, this.filter.cutoff, 300)
     }
 
     noteOn(freq: number) {
@@ -195,24 +236,30 @@ export class Voice implements Signal {
         this.oscillator_b.frequency.setValue(freq)
 
         this.ampEnvelope.trigger()
+        this.filterEnvelope.trigger()
     }
 
     noteOff() {
         this.ampEnvelope.release()
-    }
-
-    step_audio_rate() {
-        this.ampEnvelope.process()
+        this.filterEnvelope.release()
     }
 
     process() {
 
+        this.ampEnvelope.process()
+        this.filterEnvelope.process()
+
+        this.modMatrix.process()
+
         let a = this.oscillator_a.process()
         let b = this.oscillator_b.process()
+
 
         let mixed = (a + b) * 0.5
 
         mixed *= this.ampEnvelope.getValue()
+
+        mixed = this.filter.process(mixed)
 
         return mixed
     }
@@ -236,6 +283,10 @@ interface ModulationRoute {
 }
 
 
+/*
+processBlock()
+processSample()
+*/
 export class ModulationMatrix {
     private routes: ModulationRoute[] = []
 
@@ -250,21 +301,22 @@ export class ModulationMatrix {
     }
 
     process() {
-        const modulations = new Map<Parameter, number>()
+
+        const destinations = new Set<Parameter>()
+
+        for (const route of this.routes) {
+            destinations.add(route.destination)
+        }
+
+        for (const destination of destinations) {
+            destination.resetModulation()
+        }
 
         for (const route of this.routes) {
             let sourceValue = route.source.getValue()
-
             let modulation = sourceValue * route.amount
 
-            let current = modulations.get(route.destination) || 0
-            modulations.set(route.destination, current + modulation)
-        }
-
-
-        for (const [destination, value] of modulations) {
-            destination.modulate(value)
+            route.destination.modulate(modulation)
         }
     }
-
 }

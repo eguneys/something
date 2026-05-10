@@ -13,14 +13,19 @@ export default class Envelope implements Modulator {
 
     private state: EnvelopeState
 
-    private attackRate = new Parameter()
-    private decayRate = new Parameter()
-    private sustainLevel = new Parameter()
-    private releaseRate = new Parameter()
+    private attack: Parameter
+    private decay: Parameter
+    private sustain: Parameter
+    private releaseParameter: Parameter
 
     constructor(private SampleRate: number) { 
         this.state = 'idle'
         this.level = 0
+
+        this.attack = new Parameter(0.001, 10, 0.01)
+        this.decay = new Parameter(0.001, 10, 0.1)
+        this.sustain = new Parameter(0, 1, 0.7)
+        this.releaseParameter = new Parameter(0.001, 10, 0.5)
     }
 
     private level!: number
@@ -36,12 +41,10 @@ export default class Envelope implements Modulator {
             sustainLevel,
             releaseTimeInSeconds,
         } = params
-        let { SampleRate } = this
-
-        this.sustainLevel.setValue(sustainLevel)
-        this.attackRate.setValue(1.0 / (attackTimeInSeconds * SampleRate))
-        this.decayRate.setValue(1.0 / (decayTimeInSeconds * SampleRate))
-        this.releaseRate.setValue(1.0 / (releaseTimeInSeconds * SampleRate))
+        this.sustain.setValue(sustainLevel)
+        this.attack.setValue(attackTimeInSeconds)
+        this.decay.setValue(decayTimeInSeconds)
+        this.releaseParameter.setValue(releaseTimeInSeconds)
     }
 
     trigger() {
@@ -66,7 +69,7 @@ export default class Envelope implements Modulator {
         switch (this.state) {
 
             case "attack":
-                this.level += dt / Math.max(0.001, this.attackRate.getValue())
+                this.level += dt / Math.max(0.001, this.attack.getValue())
                 if (this.level >= 1) {
                     this.level= 1;
                     this.state = "decay";
@@ -74,17 +77,17 @@ export default class Envelope implements Modulator {
                 break;
             case "decay":
 
-                this.level -= dt / Math.max(0.001, this.decayRate.getValue())
+                this.level -= dt / Math.max(0.001, this.decay.getValue())
 
-                if (this.level <= this.sustainLevel.getValue()) {
-                    this.level = this.sustainLevel.getValue();
+                if (this.level <= this.sustain.getValue()) {
+                    this.level = this.sustain.getValue();
                     this.state = "sustain";
                 }
                 break;
             case "sustain":
                 break;
             case "release":
-                this.level -= dt / Math.max(0.001, this.releaseRate.getValue())
+                this.level -= dt / Math.max(0.001, this.releaseParameter.getValue())
                 if (this.level <= 0) {
                     this.level = 0;
                     this.state = "idle";
