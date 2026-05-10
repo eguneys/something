@@ -1,4 +1,4 @@
-import Envelope from "./envelope"
+import Envelope, { type EnvelopeParams } from "./envelope"
 import { StateVariableFilter } from "./filter"
 
 
@@ -256,8 +256,25 @@ function getWaveformValue(waveform: WaveForm, pulseWidth: Parameter, phase: numb
     }
 }
 
-export class Voice implements Signal {
+export interface Voice {
+    frequency: number;
+    active: boolean;
+    noteOn(freq: number): void;
+    noteOff(): void;
+    process(): number;
+    ampEnvelope: Envelope
+    filterEnvelope: Envelope
+    pitchEnvelope: Envelope
+}
+
+export class BassVoice implements Signal {
     
+    frequency: number = 0
+
+    get active() {
+        return this.frequency > 0
+    }
+
     oscillator_a: Oscillator
 
     ampEnvelope: Envelope
@@ -303,6 +320,7 @@ export class Voice implements Signal {
     }
 
     noteOn(freq: number) {
+        this.frequency = freq
         this.oscillator_a.frequency.setValue(freq)
 
         this.ampEnvelope.trigger()
@@ -311,6 +329,7 @@ export class Voice implements Signal {
     }
 
     noteOff() {
+        this.frequency = 0
         this.ampEnvelope.release()
         this.filterEnvelope.release()
         this.pitchEnvelope.release()
@@ -325,6 +344,11 @@ export class Voice implements Signal {
     }
     
     process() {
+
+        if (!this.active) {
+            return 0
+        }
+
         this.lfo.process()
 
         this.ampEnvelope.process()
@@ -418,4 +442,93 @@ function polyBlep(t: number, dt: number): number {
     }
 
     return 0
+}
+
+
+export class Mixer implements Signal {
+    signals: Signal[] = []
+
+    add(signal: Signal) {
+        this.signals.push(signal)
+    }
+
+
+    process(): number {
+        let sum = 0
+
+        for (const signal of this.signals) {
+            sum += signal.process()
+        }
+
+        return Math.tanh(sum)
+    }
+}
+
+const Default_envelope_params = {
+    attackTimeInSeconds: 0.001,
+    decayTimeInSeconds: 0.6,
+    sustainLevel: 0.7,
+    releaseTimeInSeconds: 0.3
+}
+
+export class Instrument<TVoice extends Voice = Voice> implements Signal {
+    voices: TVoice[]
+
+    envelopes: {
+        amp: EnvelopeParams,
+        filter: EnvelopeParams,
+        pitch: EnvelopeParams
+    }
+
+    constructor(readonly sampleRate: number, private VoiceClass: new (sr: number) => TVoice) {
+        this.voices = []
+        this.envelopes = {
+            amp: Default_envelope_params,
+            filter: Default_envelope_params,
+            pitch: Default_envelope_params,
+        }
+    }
+
+    noteOn(freq: number) {
+        let voice = this.findFreeVoiceOrSteal()
+
+        voice.noteOn(freq)
+    }
+
+    noteOff(freq: number) {
+        for (const voice of this.voices) {
+            if (voice.frequency === freq) {
+                voice.noteOff()
+            }
+        }
+    }
+
+    process(): number {
+        let sum = 0
+
+        for (const voice of this.voices) {
+            if (!voice.active) continue
+            sum += voice.process()
+        }
+        return sum * 0.2
+    }
+
+    private findFreeVoiceOrSteal(): Voice {
+        for (const voice of this.voices) {
+            if (!voice.active) {
+                return voice
+            }
+        }
+
+        if (this.voices.length < 3) {
+            const voice = new this.VoiceClass(this.sampleRate)
+            voice.ampEnvelope.set_envelope(this.envelopes.amp)
+            voice.filterEnvelope.set_envelope(this.envelopes.filter)
+            voice.pitchEnvelope.set_envelope(this.envelopes.pitch)
+            this.voices.push(voice)
+            return voice
+        }
+
+        return this.voices[0]
+    }
 }
