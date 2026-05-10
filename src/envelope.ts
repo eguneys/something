@@ -1,3 +1,5 @@
+import { Parameter, type Modulator } from "./modulator"
+
 type EnvelopeState = "attack" | "decay" | "sustain" | "release" | "idle"
 
 export type EnvelopeParams = {
@@ -7,24 +9,24 @@ export type EnvelopeParams = {
     releaseTimeInSeconds: number,
 }
 
-export default class Envelope {
+export default class Envelope implements Modulator {
 
-    private envState!: EnvelopeState
+    private state: EnvelopeState
 
-    private attackRate!: number
-    private decayRate!: number
-    private sustainLevel!: number
-    private releaseRate!: number
+    private attackRate = new Parameter()
+    private decayRate = new Parameter()
+    private sustainLevel = new Parameter()
+    private releaseRate = new Parameter()
 
     constructor(private SampleRate: number) { 
-        this.envState = 'idle'
-        this.envelope = 0
+        this.state = 'idle'
+        this.level = 0
     }
 
-    private envelope!: number
+    private level!: number
 
-    get value() {
-        return this.envelope
+    getValue() {
+        return this.level
     }
 
     set_envelope(params: EnvelopeParams) {
@@ -36,60 +38,59 @@ export default class Envelope {
         } = params
         let { SampleRate } = this
 
-        this.sustainLevel = sustainLevel
-        this.attackRate = 1.0 / (attackTimeInSeconds * SampleRate)
-        this.decayRate = 1.0 / (decayTimeInSeconds * SampleRate)
-        this.releaseRate = 1.0 / (releaseTimeInSeconds * SampleRate)
+        this.sustainLevel.setValue(sustainLevel)
+        this.attackRate.setValue(1.0 / (attackTimeInSeconds * SampleRate))
+        this.decayRate.setValue(1.0 / (decayTimeInSeconds * SampleRate))
+        this.releaseRate.setValue(1.0 / (releaseTimeInSeconds * SampleRate))
     }
 
     trigger() {
-        this.envelope = 0
-        this.envState = 'attack'
+        this.state = 'attack'
+        this.level = 0
     }
 
     release() {
-        this.envState = 'release'
+        if (this.state !== 'idle') {
+            this.state = 'release'
+        }
     }
 
-    step() {
-        switch (this.envState) {
+    reset() {
+        this.state = 'idle'
+        this.level = 0
+    }
+
+    process() {
+        const dt = 1 / this.SampleRate
+
+        switch (this.state) {
 
             case "attack":
-
-                this.envelope += this.attackRate;
-
-                if (this.envelope >= 1) {
-                    this.envelope = 1;
-                    this.envState = "decay";
+                this.level += dt / Math.max(0.001, this.attackRate.getValue())
+                if (this.level >= 1) {
+                    this.level= 1;
+                    this.state = "decay";
                 }
-
                 break;
-
             case "decay":
 
-                this.envelope -= this.decayRate;
+                this.level -= dt / Math.max(0.001, this.decayRate.getValue())
 
-                if (this.envelope <= this.sustainLevel) {
-                    this.envelope = this.sustainLevel;
-                    this.envState = "sustain";
+                if (this.level <= this.sustainLevel.getValue()) {
+                    this.level = this.sustainLevel.getValue();
+                    this.state = "sustain";
                 }
-
                 break;
-
             case "sustain":
-
                 break;
-
             case "release":
-
-                this.envelope -= this.releaseRate;
-
-                if (this.envelope <= 0) {
-                    this.envelope = 0;
-                    this.envState = "idle";
+                this.level -= dt / Math.max(0.001, this.releaseRate.getValue())
+                if (this.level <= 0) {
+                    this.level = 0;
+                    this.state = "idle";
                 }
-
                 break;
         }
+        return this.level
     }
 }

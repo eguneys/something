@@ -71,3 +71,14 @@ multiple oscillators,
 multiple envelopes,
 modulation routing,
 operator chains,
+
+Synth
+ ├── Voices[]
+ │    ├── Oscillators[]
+ │    ├── Envelopes[]
+ │    ├── LFOs[]
+ │    ├── Filters[]
+ │    ├── ModulationMatrix
+ │    └── Mixer
+ │
+ └── Global FX

@@ -1,42 +1,40 @@
 import Envelope from "./envelope"
 
 
-class Modulation {
-    constructor(readonly source: Parameter, readonly amount: number) { }
+export interface Signal {
+    process(input?: number): number
 }
 
-interface Signal {
-    process(): number
-}
+export class Parameter {
+    private baseValue = 0
+    private modulationSum: number = 0
 
-class Parameter {
-    baseValue = 0
-    modulations: Modulation[] = []
-
-
-    addModulation(source: Parameter, amount: number) {
-        this.modulations.push(new Modulation(source, amount))
+    setValue(value: number) {
+        this.baseValue = value
     }
 
     getValue() {
-        let value = this.baseValue
+        return this.baseValue + this.modulationSum
+    }
 
-        for (const mod of this.modulations) {
-            value += mod.source.getValue() * mod.amount
-        }
-        return value
+
+    modulate(amount: number) {
+        this.modulationSum += amount
+    }
+
+    resetModulation() {
+        this.modulationSum = 0
     }
 }
 
+/*
+this.oscillator_a.frequency.modulations.push(
+    this.lfo.value * 20
+)
+
+*/
 
 /*
-
-            if (this.phase < 0.5) {
-                sample = 1
-            } else {
-                sample = -1;
-            }
-
             let p = phase
 
             p = p * p
@@ -55,14 +53,7 @@ class Parameter {
             //sample = 1 - Math.abs(phase * 2 - 1) * 2
             //sample = phase < width ? 1 : - 1
 
-            //sample = Math.sin(2 * Math.PI * frequency * time)
 
-
-            //sample = Math.max(-0.98, Math.min(0.98, sample))
-
-
-
-            //sample = Math.sin(p * Math.PI * 2)
 
             let folding = false
             if (folding) {
@@ -84,10 +75,11 @@ class Parameter {
             const steps = 6;
             //sample = Math.round(sample * steps) / steps;
 
-            sample *= envelope
 
             let drive = 0.7
             //sample = Math.tanh(sample * drive)
+
+            //sample = Math.max(-0.98, Math.min(0.98, sample))
 
 
 */
@@ -98,6 +90,8 @@ export class Oscillator implements Signal {
     pulseWidth = new Parameter()
 
     phase = 0
+
+    waveform: WaveForm = 'sine'
 
     constructor(readonly sampleRate: number) {}
 
@@ -114,9 +108,70 @@ export class Oscillator implements Signal {
             this.phase -= 1;
         }
 
-        return Math.sin(this.phase * Math.PI * 2) * gain
+
+        let value = getWaveformValue(this.waveform, this.pulseWidth, this.phase)
+
+        return value * gain
     }
 
+}
+
+export type WaveForm = 'sine' | 'triangle' | 'sawtooth' | 'square'
+
+export class LFO implements Signal, Modulator {
+    frequency = new Parameter()
+    gain = new Parameter()
+    pulseWidth = new Parameter()
+
+    phase = 0
+
+    waveform: WaveForm = 'sine'
+
+    syncToTempo: boolean = false
+    tempoDivision = 1
+
+    constructor(readonly sampleRate: number) {}
+
+    getValue(): number {
+        let value = getWaveformValue(this.waveform, this.pulseWidth, this.phase)
+        return value * this.gain.getValue()
+    }
+
+    process( ){
+        let sampleRate = this.sampleRate
+
+        let freq = this.frequency.getValue()
+        let gain = this.gain.getValue()
+
+
+        this.phase += freq / sampleRate
+
+        if (this.phase >= 1) {
+            this.phase -= 1
+        }
+
+        let value = getWaveformValue(this.waveform, this.pulseWidth, this.phase)
+
+        return value * gain
+    }
+
+}
+
+
+function getWaveformValue(waveform: WaveForm, pulseWidth: Parameter, phase: number): number {
+    switch (waveform) {
+        case 'sine':
+            return Math.sin(phase * Math.PI * 2)
+        case 'triangle':
+            return 1 - Math.abs(phase * 4 - 2)
+        case 'sawtooth':
+            return phase * 2 - 1
+        case 'square':
+            let pw = pulseWidth.getValue()
+            return phase < pw ? 1 : -1
+        default:
+            return Math.sin(phase * Math.PI * 2)
+    }
 }
 
 export class Voice implements Signal {
@@ -131,13 +186,13 @@ export class Voice implements Signal {
         this.oscillator_b = new Oscillator(sampleRate)
         this.ampEnvelope = new Envelope(sampleRate)
 
-        this.oscillator_a.gain.baseValue = 1
-        this.oscillator_b.gain.baseValue = 1
+        this.oscillator_a.gain.setValue(1)
+        this.oscillator_b.gain.setValue(1)
     }
 
     noteOn(freq: number) {
-        this.oscillator_a.frequency.baseValue = freq
-        this.oscillator_b.frequency.baseValue = freq
+        this.oscillator_a.frequency.setValue(freq)
+        this.oscillator_b.frequency.setValue(freq)
 
         this.ampEnvelope.trigger()
     }
@@ -147,7 +202,7 @@ export class Voice implements Signal {
     }
 
     step_audio_rate() {
-        this.ampEnvelope.step()
+        this.ampEnvelope.process()
     }
 
     process() {
@@ -157,8 +212,59 @@ export class Voice implements Signal {
 
         let mixed = (a + b) * 0.5
 
-        mixed *= this.ampEnvelope.value
+        mixed *= this.ampEnvelope.getValue()
 
         return mixed
     }
+}
+
+export interface Modulator {
+    getValue(): number
+
+    reset?(): void
+
+    trigger?(): void
+    release?(): void
+
+    process?(): number
+}
+
+interface ModulationRoute {
+    source: Modulator
+    destination: Parameter
+    amount: number
+}
+
+
+export class ModulationMatrix {
+    private routes: ModulationRoute[] = []
+
+    connect(source: Modulator, destination: Parameter, amount: number) {
+        this.routes.push({ source, destination, amount })
+    }
+
+    disconnect(source: Modulator, destination: Parameter) {
+        this.routes = this.routes.filter(route =>
+            route.source !== source || route.destination !== destination
+        )
+    }
+
+    process() {
+        const modulations = new Map<Parameter, number>()
+
+        for (const route of this.routes) {
+            let sourceValue = route.source.getValue()
+
+            let modulation = sourceValue * route.amount
+
+            let current = modulations.get(route.destination) || 0
+            modulations.set(route.destination, current + modulation)
+        }
+
+
+        for (const [destination, value] of modulations) {
+            destination.modulate(value)
+        }
+    }
+
 }
